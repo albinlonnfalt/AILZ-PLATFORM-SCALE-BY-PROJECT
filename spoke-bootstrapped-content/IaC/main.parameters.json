@@ -1,0 +1,41 @@
+{
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "baseName": {
+      "value": "ai-lz"
+    },
+    "location": {
+      "value": "swedencentral"
+    },
+    "tags": {
+      "value": {
+        "environment": "dev",
+        "workload": "ai-landing-zone"
+      }
+    },
+    "deployContainerApps": {
+      "value": false
+    },
+    "deployAcr": {
+      "value": false
+    },
+    "deployAppConfig": {
+      "value": false
+    },
+    "deployGenaiCosmos": {
+      "value": false
+    },
+    "deployGenaiSearch": {
+      "value": false
+    },
+    "deployGenaiStorage": {
+      "value": false
+    },
+    "deployGenaiKeyVault": {
+      "value": false
+    },
+    "deployerPrincipalId": {
+      "value": ""
+    }
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "AcrPull": {
+    "guid": "7f951dda-4ed3-4680-a7ca-43fe172d538d",
+    "name": "AcrPull"
+  },
+  "AcrPush": {
+    "guid": "8311e382-0749-4cb8-b61a-304f252e45ec",
+    "name": "AcrPush"
+  },
+  "AppConfigurationDataOwner": {
+    "guid": "5ae67dd6-50cb-40e7-96ff-dc2bfa4b606b",
+    "name": "App Configuration Data Owner"
+  },
+  "AppConfigurationDataReader": {
+    "guid": "516239f1-63e1-4d78-a4de-a74fb236a071",
+    "name": "App Configuration Data Reader"
+  },
+  "AzureAIAccountOwner": {
+    "guid": "e47c6f54-e4a2-4754-9501-8e0985b135e1",
+    "name": "Azure AI Account Owner"
+  },
+  "AzureAIOwner": {
+    "guid": "c883944f-8b7b-4483-af10-35834be79c4a",
+    "name": "Azure AI Owner"
+  },
+  "AzureAIProjectManager": {
+    "guid": "eadc314b-1a2d-4efa-be10-5d325db5065e",
+    "name": "Azure AI Project Manager"
+  },
+  "AzureAIUser": {
+    "guid": "53ca6127-db72-4b80-b1b0-d745d6d5456d",
+    "name": "Azure AI User"
+  },
+  "CognitiveServicesUser": {
+    "guid": "a97b65f3-24c7-4388-baec-2e87135dc908",
+    "name": "Cognitive Services User"
+  },
+  "CognitiveServicesOpenAIUser": {
+    "guid": "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd",
+    "name": "Cognitive Services OpenAI User"
+  },
+  "CosmosDBBuiltInDataContributor": {
+    "guid": "00000000-0000-0000-0000-000000000002",
+    "name": "Cosmos DB Built-in Data Contributor"
+  },
+  "KeyVaultContributor": {
+    "guid": "f25e0fa2-a7c8-4377-a976-54943a77a395",
+    "name": "Key Vault Contributor"
+  },
+  "KeyVaultSecretsOfficer": {
+    "guid": "b86a8fe4-44ce-4948-aee5-eccb2c155cd7",
+    "name": "Key Vault Secrets Officer"
+  },
+  "KeyVaultSecretsUser": {
+    "guid": "4633458b-17de-408a-b874-0445c86b69e6",
+    "name": "Key Vault Secrets User"
+  },
+  "SearchIndexDataContributor": {
+    "guid": "8ebe5a00-799e-43f5-93ac-243d3dce84a7",
+    "name": "Search Index Data Contributor"
+  },
+  "SearchIndexDataReader": {
+    "guid": "1407120a-92aa-4202-b7e9-c0e197c71c8f",
+    "name": "Search Index Data Reader"
+  },
+  "SearchServiceContributor": {
+    "guid": "7ca78c08-252a-4471-8644-bb5ff32d4ba0",
+    "name": "Search Service Contributor"
+  },
+  "StorageBlobDataContributor": {
+    "guid": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
+    "name": "Storage Blob Data Contributor"
+  },
+  "StorageBlobDataReader": {
+    "guid": "2a2b9908-6ea1-4ae2-8e65-a410df84e7d1",
+    "name": "Storage Blob Data Reader"
+  }
+}

@@ -1,0 +1,778 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "languageVersion": "2.0",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.41.2.15936",
+      "templateHash": "7088435788095716358"
+    }
+  },
+  "definitions": {
+    "PrivateDnsZoneIds": {
+      "type": "object",
+      "properties": {
+        "cognitiveServices": {
+          "type": "string"
+        },
+        "openAi": {
+          "type": "string"
+        },
+        "aiServices": {
+          "type": "string"
+        },
+        "blob": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "cosmos": {
+          "type": "string"
+        },
+        "search": {
+          "type": "string"
+        },
+        "keyVault": {
+          "type": "string"
+        },
+        "acr": {
+          "type": "string"
+        },
+        "appConfig": {
+          "type": "string"
+        },
+        "containerApps": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "parameters": {
+    "baseName": {
+      "type": "string",
+      "metadata": {
+        "description": "Base name used to derive spoke resource names."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for spoke network resources."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {},
+      "metadata": {
+        "description": "Tags applied to all created resources."
+      }
+    },
+    "spokeVnetAddressPrefixes": {
+      "type": "array",
+      "defaultValue": [
+        "10.1.0.0/16"
+      ],
+      "metadata": {
+        "description": "Spoke VNet address prefixes."
+      }
+    },
+    "privateEndpointsSubnetPrefix": {
+      "type": "string",
+      "defaultValue": "10.1.0.0/24",
+      "metadata": {
+        "description": "Address prefix for the private endpoints subnet."
+      }
+    },
+    "deployAiFoundryAgentSubnet": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Deploy a subnet delegated to Microsoft.App/environments for AI Foundry Agent Service or similar workloads."
+      }
+    },
+    "aiFoundryAgentSubnetPrefix": {
+      "type": "string",
+      "defaultValue": "10.1.1.0/24",
+      "metadata": {
+        "description": "Address prefix for the AI Foundry Agent Service subnet."
+      }
+    },
+    "deployContainerAppsSubnet": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Deploy a subnet delegated to Microsoft.App/environments for Azure Container Apps Environment."
+      }
+    },
+    "containerAppsSubnetPrefix": {
+      "type": "string",
+      "defaultValue": "10.1.6.0/23",
+      "metadata": {
+        "description": "Address prefix for the Container Apps subnet. Use at least /23 for Container Apps Environment."
+      }
+    },
+    "hubVnetId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID of the hub VNet to peer with."
+      }
+    },
+    "hubVnetName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the hub VNet to peer with."
+      }
+    },
+    "hubResourceGroupName": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource group name that contains the hub VNet."
+      }
+    },
+    "hubSubscriptionId": {
+      "type": "string",
+      "defaultValue": "[subscription().subscriptionId]",
+      "metadata": {
+        "description": "Subscription ID that contains the hub VNet."
+      }
+    },
+    "hubPrivateDnsResourceGroupName": {
+      "type": "string",
+      "defaultValue": "[parameters('hubResourceGroupName')]",
+      "metadata": {
+        "description": "Resource group name that contains hub-owned Private DNS zones. Defaults to the hub resource group."
+      }
+    },
+    "privateDnsZoneIds": {
+      "$ref": "#/definitions/PrivateDnsZoneIds",
+      "defaultValue": {
+        "cognitiveServices": "",
+        "openAi": "",
+        "aiServices": "",
+        "blob": "",
+        "file": "",
+        "cosmos": "",
+        "search": "",
+        "keyVault": "",
+        "acr": "",
+        "appConfig": "",
+        "containerApps": ""
+      },
+      "metadata": {
+        "description": "Hub Private DNS zone IDs returned by the hub module. Empty values are skipped."
+      }
+    },
+    "allowForwardedTraffic": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Allow forwarded traffic across the hub/spoke peerings."
+      }
+    },
+    "useRemoteGateways": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Use the hub remote gateway on the spoke-to-hub peering. Requires the hub peering to allow gateway transit."
+      }
+    },
+    "allowGatewayTransit": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Allow the hub VNet to advertise its gateway to this spoke."
+      }
+    },
+    "privateDnsRegistrationEnabled": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Set to true only if VM autoregistration is desired in the linked Private DNS zones. Private endpoint zones should normally use false."
+      }
+    }
+  },
+  "variables": {
+    "spokeVnetName": "[format('vnet-{0}-spoke', parameters('baseName'))]",
+    "privateEndpointsSubnetName": "snet-private-endpoints",
+    "aiFoundryAgentSubnetName": "snet-ai-foundry-agent",
+    "containerAppsSubnetName": "snet-container-apps",
+    "allowVnetHttpsRule": {
+      "name": "AllowVnetInBoundHttps",
+      "properties": {
+        "priority": 100,
+        "direction": "Inbound",
+        "access": "Allow",
+        "protocol": "Tcp",
+        "sourceAddressPrefix": "VirtualNetwork",
+        "sourcePortRange": "*",
+        "destinationAddressPrefix": "VirtualNetwork",
+        "destinationPortRange": "443"
+      }
+    },
+    "denyAllInboundRule": {
+      "name": "DenyAllInbound",
+      "properties": {
+        "priority": 4096,
+        "direction": "Inbound",
+        "access": "Deny",
+        "protocol": "*",
+        "sourceAddressPrefix": "*",
+        "sourcePortRange": "*",
+        "destinationAddressPrefix": "*",
+        "destinationPortRange": "*"
+      }
+    }
+  },
+  "resources": {
+    "privateEndpointsNsg": {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2024-05-01",
+      "name": "[format('nsg-{0}-spoke-pe', parameters('baseName'))]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "securityRules": [
+          "[variables('allowVnetHttpsRule')]",
+          "[variables('denyAllInboundRule')]"
+        ]
+      }
+    },
+    "aiFoundryAgentNsg": {
+      "condition": "[parameters('deployAiFoundryAgentSubnet')]",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2024-05-01",
+      "name": "[format('nsg-{0}-spoke-agent', parameters('baseName'))]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "securityRules": [
+          "[variables('allowVnetHttpsRule')]",
+          "[variables('denyAllInboundRule')]"
+        ]
+      }
+    },
+    "containerAppsNsg": {
+      "condition": "[parameters('deployContainerAppsSubnet')]",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2024-05-01",
+      "name": "[format('nsg-{0}-spoke-cae', parameters('baseName'))]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "securityRules": [
+          "[variables('allowVnetHttpsRule')]",
+          "[variables('denyAllInboundRule')]"
+        ]
+      }
+    },
+    "spokeVnet": {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2024-05-01",
+      "name": "[variables('spokeVnetName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": "[parameters('spokeVnetAddressPrefixes')]"
+        },
+        "subnets": "[concat(createArray(createObject('name', variables('privateEndpointsSubnetName'), 'properties', createObject('addressPrefix', parameters('privateEndpointsSubnetPrefix'), 'privateEndpointNetworkPolicies', 'Enabled', 'networkSecurityGroup', createObject('id', resourceId('Microsoft.Network/networkSecurityGroups', format('nsg-{0}-spoke-pe', parameters('baseName'))))))), if(parameters('deployAiFoundryAgentSubnet'), createArray(createObject('name', variables('aiFoundryAgentSubnetName'), 'properties', createObject('addressPrefix', parameters('aiFoundryAgentSubnetPrefix'), 'networkSecurityGroup', createObject('id', resourceId('Microsoft.Network/networkSecurityGroups', format('nsg-{0}-spoke-agent', parameters('baseName')))), 'delegations', createArray(createObject('name', 'delegation-Microsoft.App-environments', 'properties', createObject('serviceName', 'Microsoft.App/environments')))))), createArray()), if(parameters('deployContainerAppsSubnet'), createArray(createObject('name', variables('containerAppsSubnetName'), 'properties', createObject('addressPrefix', parameters('containerAppsSubnetPrefix'), 'networkSecurityGroup', createObject('id', resourceId('Microsoft.Network/networkSecurityGroups', format('nsg-{0}-spoke-cae', parameters('baseName')))), 'delegations', createArray(createObject('name', 'delegation-Microsoft.App-environments', 'properties', createObject('serviceName', 'Microsoft.App/environments')))))), createArray()))]"
+      },
+      "dependsOn": [
+        "aiFoundryAgentNsg",
+        "containerAppsNsg",
+        "privateEndpointsNsg"
+      ]
+    },
+    "spokeToHubPeering": {
+      "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+      "apiVersion": "2024-05-01",
+      "name": "[format('{0}/{1}', variables('spokeVnetName'), format('{0}-to-{1}', variables('spokeVnetName'), parameters('hubVnetName')))]",
+      "properties": {
+        "allowVirtualNetworkAccess": true,
+        "allowForwardedTraffic": "[parameters('allowForwardedTraffic')]",
+        "allowGatewayTransit": false,
+        "useRemoteGateways": "[parameters('useRemoteGateways')]",
+        "remoteVirtualNetwork": {
+          "id": "[parameters('hubVnetId')]"
+        }
+      },
+      "dependsOn": [
+        "spokeVnet"
+      ]
+    },
+    "hubPeering": {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('hubPeering-{0}', uniqueString('hubPeering', deployment().name))]",
+      "subscriptionId": "[parameters('hubSubscriptionId')]",
+      "resourceGroup": "[parameters('hubResourceGroupName')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "hubVnetName": {
+            "value": "[parameters('hubVnetName')]"
+          },
+          "spokeVnetId": {
+            "value": "[resourceId('Microsoft.Network/virtualNetworks', variables('spokeVnetName'))]"
+          },
+          "spokeVnetName": {
+            "value": "[variables('spokeVnetName')]"
+          },
+          "allowForwardedTraffic": {
+            "value": "[parameters('allowForwardedTraffic')]"
+          },
+          "allowGatewayTransit": {
+            "value": "[parameters('allowGatewayTransit')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.41.2.15936",
+              "templateHash": "6229803864762198923"
+            }
+          },
+          "parameters": {
+            "hubVnetName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the existing hub virtual network."
+              }
+            },
+            "spokeVnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the remote spoke virtual network."
+              }
+            },
+            "spokeVnetName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the remote spoke virtual network."
+              }
+            },
+            "allowForwardedTraffic": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Allow forwarded traffic from the spoke to enter the hub VNet."
+              }
+            },
+            "allowGatewayTransit": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Allow the hub VNet to advertise its gateway to this spoke."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', parameters('hubVnetName'), format('{0}-to-{1}', parameters('hubVnetName'), parameters('spokeVnetName')))]",
+              "properties": {
+                "allowVirtualNetworkAccess": true,
+                "allowForwardedTraffic": "[parameters('allowForwardedTraffic')]",
+                "allowGatewayTransit": "[parameters('allowGatewayTransit')]",
+                "useRemoteGateways": false,
+                "remoteVirtualNetwork": {
+                  "id": "[parameters('spokeVnetId')]"
+                }
+              }
+            }
+          ],
+          "outputs": {
+            "hubToSpokePeeringName": {
+              "type": "string",
+              "value": "[format('{0}-to-{1}', parameters('hubVnetName'), parameters('spokeVnetName'))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "spokeVnet"
+      ]
+    },
+    "privateDnsLinks": {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('privateDnsLinks-{0}', uniqueString('privateDnsLinks', deployment().name))]",
+      "subscriptionId": "[parameters('hubSubscriptionId')]",
+      "resourceGroup": "[parameters('hubPrivateDnsResourceGroupName')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "spokeVnetName": {
+            "value": "[variables('spokeVnetName')]"
+          },
+          "spokeVnetId": {
+            "value": "[resourceId('Microsoft.Network/virtualNetworks', variables('spokeVnetName'))]"
+          },
+          "privateDnsZoneIds": {
+            "value": "[parameters('privateDnsZoneIds')]"
+          },
+          "registrationEnabled": {
+            "value": "[parameters('privateDnsRegistrationEnabled')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "languageVersion": "2.0",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.41.2.15936",
+              "templateHash": "6537287669163765017"
+            }
+          },
+          "definitions": {
+            "PrivateDnsZoneIds": {
+              "type": "object",
+              "properties": {
+                "cognitiveServices": {
+                  "type": "string"
+                },
+                "openAi": {
+                  "type": "string"
+                },
+                "aiServices": {
+                  "type": "string"
+                },
+                "blob": {
+                  "type": "string"
+                },
+                "file": {
+                  "type": "string"
+                },
+                "cosmos": {
+                  "type": "string"
+                },
+                "search": {
+                  "type": "string"
+                },
+                "keyVault": {
+                  "type": "string"
+                },
+                "acr": {
+                  "type": "string"
+                },
+                "appConfig": {
+                  "type": "string"
+                },
+                "containerApps": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "parameters": {
+            "spokeVnetName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the spoke virtual network. Used to create deterministic DNS link names."
+              }
+            },
+            "spokeVnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the spoke virtual network to link to hub-owned Private DNS zones."
+              }
+            },
+            "privateDnsZoneIds": {
+              "$ref": "#/definitions/PrivateDnsZoneIds",
+              "metadata": {
+                "description": "Hub Private DNS zone IDs. Empty values are skipped."
+              }
+            },
+            "registrationEnabled": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Set to true only for DNS zones where VM autoregistration is desired. Private endpoint zones should normally use false."
+              }
+            }
+          },
+          "resources": {
+            "cognitiveServicesZone": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').cognitiveServices))]",
+              "existing": true,
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[last(split(parameters('privateDnsZoneIds').cognitiveServices, '/'))]"
+            },
+            "openAiZone": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').openAi))]",
+              "existing": true,
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[last(split(parameters('privateDnsZoneIds').openAi, '/'))]"
+            },
+            "aiServicesZone": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').aiServices))]",
+              "existing": true,
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[last(split(parameters('privateDnsZoneIds').aiServices, '/'))]"
+            },
+            "blobZone": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').blob))]",
+              "existing": true,
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[last(split(parameters('privateDnsZoneIds').blob, '/'))]"
+            },
+            "fileZone": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').file))]",
+              "existing": true,
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[last(split(parameters('privateDnsZoneIds').file, '/'))]"
+            },
+            "cosmosZone": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').cosmos))]",
+              "existing": true,
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[last(split(parameters('privateDnsZoneIds').cosmos, '/'))]"
+            },
+            "searchZone": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').search))]",
+              "existing": true,
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[last(split(parameters('privateDnsZoneIds').search, '/'))]"
+            },
+            "keyVaultZone": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').keyVault))]",
+              "existing": true,
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[last(split(parameters('privateDnsZoneIds').keyVault, '/'))]"
+            },
+            "acrZone": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').acr))]",
+              "existing": true,
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[last(split(parameters('privateDnsZoneIds').acr, '/'))]"
+            },
+            "appConfigZone": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').appConfig))]",
+              "existing": true,
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[last(split(parameters('privateDnsZoneIds').appConfig, '/'))]"
+            },
+            "containerAppsZone": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').containerApps))]",
+              "existing": true,
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[last(split(parameters('privateDnsZoneIds').containerApps, '/'))]"
+            },
+            "cognitiveServicesLink": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').cognitiveServices))]",
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', last(split(parameters('privateDnsZoneIds').cognitiveServices, '/')), format('link-{0}', parameters('spokeVnetName')))]",
+              "location": "global",
+              "properties": {
+                "registrationEnabled": "[parameters('registrationEnabled')]",
+                "virtualNetwork": {
+                  "id": "[parameters('spokeVnetId')]"
+                }
+              }
+            },
+            "openAiLink": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').openAi))]",
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', last(split(parameters('privateDnsZoneIds').openAi, '/')), format('link-{0}', parameters('spokeVnetName')))]",
+              "location": "global",
+              "properties": {
+                "registrationEnabled": "[parameters('registrationEnabled')]",
+                "virtualNetwork": {
+                  "id": "[parameters('spokeVnetId')]"
+                }
+              }
+            },
+            "aiServicesLink": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').aiServices))]",
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', last(split(parameters('privateDnsZoneIds').aiServices, '/')), format('link-{0}', parameters('spokeVnetName')))]",
+              "location": "global",
+              "properties": {
+                "registrationEnabled": "[parameters('registrationEnabled')]",
+                "virtualNetwork": {
+                  "id": "[parameters('spokeVnetId')]"
+                }
+              }
+            },
+            "blobLink": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').blob))]",
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', last(split(parameters('privateDnsZoneIds').blob, '/')), format('link-{0}', parameters('spokeVnetName')))]",
+              "location": "global",
+              "properties": {
+                "registrationEnabled": "[parameters('registrationEnabled')]",
+                "virtualNetwork": {
+                  "id": "[parameters('spokeVnetId')]"
+                }
+              }
+            },
+            "fileLink": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').file))]",
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', last(split(parameters('privateDnsZoneIds').file, '/')), format('link-{0}', parameters('spokeVnetName')))]",
+              "location": "global",
+              "properties": {
+                "registrationEnabled": "[parameters('registrationEnabled')]",
+                "virtualNetwork": {
+                  "id": "[parameters('spokeVnetId')]"
+                }
+              }
+            },
+            "cosmosLink": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').cosmos))]",
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', last(split(parameters('privateDnsZoneIds').cosmos, '/')), format('link-{0}', parameters('spokeVnetName')))]",
+              "location": "global",
+              "properties": {
+                "registrationEnabled": "[parameters('registrationEnabled')]",
+                "virtualNetwork": {
+                  "id": "[parameters('spokeVnetId')]"
+                }
+              }
+            },
+            "searchLink": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').search))]",
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', last(split(parameters('privateDnsZoneIds').search, '/')), format('link-{0}', parameters('spokeVnetName')))]",
+              "location": "global",
+              "properties": {
+                "registrationEnabled": "[parameters('registrationEnabled')]",
+                "virtualNetwork": {
+                  "id": "[parameters('spokeVnetId')]"
+                }
+              }
+            },
+            "keyVaultLink": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').keyVault))]",
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', last(split(parameters('privateDnsZoneIds').keyVault, '/')), format('link-{0}', parameters('spokeVnetName')))]",
+              "location": "global",
+              "properties": {
+                "registrationEnabled": "[parameters('registrationEnabled')]",
+                "virtualNetwork": {
+                  "id": "[parameters('spokeVnetId')]"
+                }
+              }
+            },
+            "acrLink": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').acr))]",
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', last(split(parameters('privateDnsZoneIds').acr, '/')), format('link-{0}', parameters('spokeVnetName')))]",
+              "location": "global",
+              "properties": {
+                "registrationEnabled": "[parameters('registrationEnabled')]",
+                "virtualNetwork": {
+                  "id": "[parameters('spokeVnetId')]"
+                }
+              }
+            },
+            "appConfigLink": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').appConfig))]",
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', last(split(parameters('privateDnsZoneIds').appConfig, '/')), format('link-{0}', parameters('spokeVnetName')))]",
+              "location": "global",
+              "properties": {
+                "registrationEnabled": "[parameters('registrationEnabled')]",
+                "virtualNetwork": {
+                  "id": "[parameters('spokeVnetId')]"
+                }
+              }
+            },
+            "containerAppsLink": {
+              "condition": "[not(empty(parameters('privateDnsZoneIds').containerApps))]",
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', last(split(parameters('privateDnsZoneIds').containerApps, '/')), format('link-{0}', parameters('spokeVnetName')))]",
+              "location": "global",
+              "properties": {
+                "registrationEnabled": "[parameters('registrationEnabled')]",
+                "virtualNetwork": {
+                  "id": "[parameters('spokeVnetId')]"
+                }
+              }
+            }
+          },
+          "outputs": {
+            "linkedPrivateDnsZoneCount": {
+              "type": "int",
+              "value": "[length(filter(createArray(parameters('privateDnsZoneIds').cognitiveServices, parameters('privateDnsZoneIds').openAi, parameters('privateDnsZoneIds').aiServices, parameters('privateDnsZoneIds').blob, parameters('privateDnsZoneIds').file, parameters('privateDnsZoneIds').cosmos, parameters('privateDnsZoneIds').search, parameters('privateDnsZoneIds').keyVault, parameters('privateDnsZoneIds').acr, parameters('privateDnsZoneIds').appConfig, parameters('privateDnsZoneIds').containerApps), lambda('zoneId', not(empty(lambdaVariables('zoneId'))))))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "spokeVnet"
+      ]
+    }
+  },
+  "outputs": {
+    "spokeVnetId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Network/virtualNetworks', variables('spokeVnetName'))]"
+    },
+    "spokeVnetName": {
+      "type": "string",
+      "value": "[variables('spokeVnetName')]"
+    },
+    "privateEndpointsSubnetId": {
+      "type": "string",
+      "value": "[format('{0}/subnets/{1}', resourceId('Microsoft.Network/virtualNetworks', variables('spokeVnetName')), variables('privateEndpointsSubnetName'))]"
+    },
+    "aiFoundryAgentSubnetId": {
+      "type": "string",
+      "value": "[if(parameters('deployAiFoundryAgentSubnet'), format('{0}/subnets/{1}', resourceId('Microsoft.Network/virtualNetworks', variables('spokeVnetName')), variables('aiFoundryAgentSubnetName')), '')]"
+    },
+    "containerAppsSubnetId": {
+      "type": "string",
+      "value": "[if(parameters('deployContainerAppsSubnet'), format('{0}/subnets/{1}', resourceId('Microsoft.Network/virtualNetworks', variables('spokeVnetName')), variables('containerAppsSubnetName')), '')]"
+    },
+    "spokeToHubPeeringName": {
+      "type": "string",
+      "value": "[format('{0}-to-{1}', variables('spokeVnetName'), parameters('hubVnetName'))]"
+    },
+    "hubToSpokePeeringName": {
+      "type": "string",
+      "value": "[reference('hubPeering').outputs.hubToSpokePeeringName.value]"
+    },
+    "linkedPrivateDnsZoneCount": {
+      "type": "int",
+      "value": "[reference('privateDnsLinks').outputs.linkedPrivateDnsZoneCount.value]"
+    }
+  }
+}

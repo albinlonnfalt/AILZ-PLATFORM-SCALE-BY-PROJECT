@@ -1,0 +1,22 @@
+{
+  "foundrySubscriptionId": "<foundry-subscription-id>",
+  "foundryResourceGroupName": "<foundry-resource-group-name>",
+  "foundryAccountName": "<foundry-account-name>",
+  "foundryAccountId": "/subscriptions/<foundry-subscription-id>/resourceGroups/<foundry-resource-group-name>/providers/Microsoft.CognitiveServices/accounts/<foundry-account-name>",
+  "foundryAccountPrincipalId": "<foundry-account-principal-id>",
+  "foundryAccountEndpoint": "https://<foundry-account-name>.services.ai.azure.com/",
+  "platformSpokeVnetId": "/subscriptions/<foundry-subscription-id>/resourceGroups/<foundry-resource-group-name>/providers/Microsoft.Network/virtualNetworks/<platform-spoke-vnet-name>",
+  "platformPrivateEndpointSubnetId": "/subscriptions/<foundry-subscription-id>/resourceGroups/<foundry-resource-group-name>/providers/Microsoft.Network/virtualNetworks/<platform-spoke-vnet-name>/subnets/<private-endpoint-subnet-name>",
+  "projectNamePrefix": "ailz",
+  "createProjectCapabilityHost": true,
+  "capabilityHost": {
+    "storageAccountName": "<capability-host-storage-account-name>",
+    "storageAccountId": "/subscriptions/<foundry-subscription-id>/resourceGroups/<foundry-resource-group-name>/providers/Microsoft.Storage/storageAccounts/<capability-host-storage-account-name>",
+    "cosmosDbName": "<capability-host-cosmos-db-name>",
+    "cosmosDbId": "/subscriptions/<foundry-subscription-id>/resourceGroups/<foundry-resource-group-name>/providers/Microsoft.DocumentDB/databaseAccounts/<capability-host-cosmos-db-name>",
+    "aiSearchName": "<capability-host-ai-search-name>",
+    "aiSearchId": "/subscriptions/<foundry-subscription-id>/resourceGroups/<foundry-resource-group-name>/providers/Microsoft.Search/searchServices/<capability-host-ai-search-name>",
+    "keyVaultName": "<capability-host-key-vault-name>",
+    "keyVaultId": "/subscriptions/<foundry-subscription-id>/resourceGroups/<foundry-resource-group-name>/providers/Microsoft.KeyVault/vaults/<capability-host-key-vault-name>"
+  }
+}

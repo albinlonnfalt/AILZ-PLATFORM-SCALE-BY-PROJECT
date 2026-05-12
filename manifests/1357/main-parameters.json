@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "baseName": {
+      "value": "ai-lz"
+    },
+    "location": {
+      "value": "swedencentral"
+    },
+    "tags": {
+      "value": {
+        "environment": "proof-of-concept",
+        "workload": "ai-landing-zone"
+      }
+    },
+    "deployContainerApps": {
+      "value": true
+    },
+    "deployAcr": {
+      "value": true
+    },
+    "deployAppConfig": {
+      "value": true
+    },
+    "deployGenaiCosmos": {
+      "value": true
+    },
+    "deployGenaiSearch": {
+      "value": true
+    },
+    "deployGenaiStorage": {
+      "value": true
+    },
+    "deployGenaiKeyVault": {
+      "value": true
+    },
+    "deployerPrincipalId": {
+      "value": ""
+    }
+  }
+}

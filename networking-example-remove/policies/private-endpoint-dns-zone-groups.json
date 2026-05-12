@@ -1,0 +1,593 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "languageVersion": "2.0",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.41.2.15936",
+      "templateHash": "6087205549416865553"
+    }
+  },
+  "definitions": {
+    "PrivateDnsZoneIds": {
+      "type": "object",
+      "properties": {
+        "cognitiveServices": {
+          "type": "string"
+        },
+        "openAi": {
+          "type": "string"
+        },
+        "aiServices": {
+          "type": "string"
+        },
+        "blob": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "cosmos": {
+          "type": "string"
+        },
+        "search": {
+          "type": "string"
+        },
+        "keyVault": {
+          "type": "string"
+        },
+        "acr": {
+          "type": "string"
+        },
+        "appConfig": {
+          "type": "string"
+        },
+        "containerApps": {
+          "type": "string"
+        }
+      }
+    },
+    "PrivateDnsZoneConfig": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "privateDnsZoneId": {
+          "type": "string"
+        }
+      }
+    },
+    "PrivateEndpointDnsMapping": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "groupIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "privateDnsZoneConfigs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PrivateDnsZoneConfig"
+          }
+        }
+      }
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[deployment().location]",
+      "metadata": {
+        "description": "Azure region for the policy assignments managed identities."
+      }
+    },
+    "privateDnsZoneIds": {
+      "$ref": "#/definitions/PrivateDnsZoneIds",
+      "metadata": {
+        "description": "Hub Private DNS zone IDs. Empty values skip the corresponding policy assignment."
+      }
+    },
+    "privateDnsZoneResourceGroupName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the resource group that contains the hub Private DNS zones. The policy assignment identities receive Private DNS Zone Contributor here."
+      }
+    },
+    "privateDnsZoneSubscriptionId": {
+      "type": "string",
+      "defaultValue": "[subscription().subscriptionId]",
+      "metadata": {
+        "description": "Subscription ID that contains the hub Private DNS zones."
+      }
+    },
+    "createRoleAssignments": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Create role assignments for each policy assignment managed identity. Set to false if role assignments are managed separately."
+      }
+    },
+    "policyDefinitionName": {
+      "type": "string",
+      "defaultValue": "deploy-private-endpoint-dns-zone-groups",
+      "metadata": {
+        "description": "Name for the custom policy definition."
+      }
+    },
+    "policyAssignmentNamePrefix": {
+      "type": "string",
+      "defaultValue": "pe-dns",
+      "metadata": {
+        "description": "Prefix used for policy assignment names. Assignment names must be unique in the subscription."
+      }
+    },
+    "dnsZoneGroupName": {
+      "type": "string",
+      "defaultValue": "default",
+      "metadata": {
+        "description": "Name of the private DNS zone group created on matching private endpoints."
+      }
+    }
+  },
+  "variables": {
+    "networkContributorRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4d97b98b-1d4f-4787-a291-c67834d212e7')]",
+    "privateDnsZoneContributorRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b12aa53e-6015-4669-85d0-8515ebb3ae7f')]",
+    "allDnsMappings": [
+      {
+        "key": "ai-services-account",
+        "displayName": "AI Services account private endpoints",
+        "groupIds": [
+          "account"
+        ],
+        "privateDnsZoneConfigs": [
+          {
+            "name": "cognitiveServices",
+            "privateDnsZoneId": "[parameters('privateDnsZoneIds').cognitiveServices]"
+          },
+          {
+            "name": "openAi",
+            "privateDnsZoneId": "[parameters('privateDnsZoneIds').openAi]"
+          },
+          {
+            "name": "aiServices",
+            "privateDnsZoneId": "[parameters('privateDnsZoneIds').aiServices]"
+          }
+        ]
+      },
+      {
+        "key": "storage-blob",
+        "displayName": "Storage blob private endpoints",
+        "groupIds": [
+          "blob"
+        ],
+        "privateDnsZoneConfigs": [
+          {
+            "name": "blob",
+            "privateDnsZoneId": "[parameters('privateDnsZoneIds').blob]"
+          }
+        ]
+      },
+      {
+        "key": "storage-file",
+        "displayName": "Storage file private endpoints",
+        "groupIds": [
+          "file"
+        ],
+        "privateDnsZoneConfigs": [
+          {
+            "name": "file",
+            "privateDnsZoneId": "[parameters('privateDnsZoneIds').file]"
+          }
+        ]
+      },
+      {
+        "key": "cosmos-sql",
+        "displayName": "Cosmos DB SQL private endpoints",
+        "groupIds": [
+          "Sql",
+          "sql"
+        ],
+        "privateDnsZoneConfigs": [
+          {
+            "name": "cosmos",
+            "privateDnsZoneId": "[parameters('privateDnsZoneIds').cosmos]"
+          }
+        ]
+      },
+      {
+        "key": "ai-search",
+        "displayName": "AI Search private endpoints",
+        "groupIds": [
+          "searchService"
+        ],
+        "privateDnsZoneConfigs": [
+          {
+            "name": "search",
+            "privateDnsZoneId": "[parameters('privateDnsZoneIds').search]"
+          }
+        ]
+      },
+      {
+        "key": "key-vault",
+        "displayName": "Key Vault private endpoints",
+        "groupIds": [
+          "vault"
+        ],
+        "privateDnsZoneConfigs": [
+          {
+            "name": "keyVault",
+            "privateDnsZoneId": "[parameters('privateDnsZoneIds').keyVault]"
+          }
+        ]
+      },
+      {
+        "key": "container-registry",
+        "displayName": "Container Registry private endpoints",
+        "groupIds": [
+          "registry"
+        ],
+        "privateDnsZoneConfigs": [
+          {
+            "name": "acr",
+            "privateDnsZoneId": "[parameters('privateDnsZoneIds').acr]"
+          }
+        ]
+      },
+      {
+        "key": "app-configuration",
+        "displayName": "App Configuration private endpoints",
+        "groupIds": [
+          "configurationStores"
+        ],
+        "privateDnsZoneConfigs": [
+          {
+            "name": "appConfig",
+            "privateDnsZoneId": "[parameters('privateDnsZoneIds').appConfig]"
+          }
+        ]
+      },
+      {
+        "key": "container-apps",
+        "displayName": "Container Apps Environment private endpoints",
+        "groupIds": [
+          "managedEnvironments",
+          "managedEnvironment"
+        ],
+        "privateDnsZoneConfigs": [
+          {
+            "name": "containerApps",
+            "privateDnsZoneId": "[parameters('privateDnsZoneIds').containerApps]"
+          }
+        ]
+      }
+    ],
+    "dnsMappings": "[filter(variables('allDnsMappings'), lambda('mapping', equals(length(filter(lambdaVariables('mapping').privateDnsZoneConfigs, lambda('zone', not(empty(lambdaVariables('zone').privateDnsZoneId))))), length(lambdaVariables('mapping').privateDnsZoneConfigs))))]"
+  },
+  "resources": {
+    "privateEndpointDnsPolicy": {
+      "type": "Microsoft.Authorization/policyDefinitions",
+      "apiVersion": "2023-04-01",
+      "name": "[parameters('policyDefinitionName')]",
+      "properties": {
+        "displayName": "Deploy private DNS zone groups for private endpoints",
+        "description": "Automatically creates private DNS zone groups on private endpoints so their A-records are registered in the configured Private DNS zones.",
+        "policyType": "Custom",
+        "mode": "Indexed",
+        "metadata": {
+          "category": "Network",
+          "version": "1.0.0"
+        },
+        "parameters": {
+          "effect": {
+            "type": "String",
+            "metadata": {
+              "displayName": "Effect",
+              "description": "Enable or disable private DNS zone group deployment."
+            },
+            "allowedValues": [
+              "DeployIfNotExists",
+              "Disabled"
+            ],
+            "defaultValue": "DeployIfNotExists"
+          },
+          "groupIds": {
+            "type": "Array",
+            "metadata": {
+              "displayName": "Private endpoint group IDs",
+              "description": "Private endpoint group IDs that should receive this DNS zone group."
+            }
+          },
+          "privateDnsZoneIds": {
+            "type": "Array",
+            "metadata": {
+              "displayName": "Private DNS zone IDs",
+              "description": "Private DNS zone resource IDs that must exist in the DNS zone group."
+            }
+          },
+          "privateDnsZoneConfigs": {
+            "type": "Array",
+            "metadata": {
+              "displayName": "Private DNS zone configs",
+              "description": "Private DNS zone group configuration objects containing name and privateDnsZoneId."
+            }
+          },
+          "dnsZoneGroupName": {
+            "type": "String",
+            "metadata": {
+              "displayName": "DNS zone group name",
+              "description": "Name of the private DNS zone group to deploy on matching private endpoints."
+            },
+            "defaultValue": "default"
+          }
+        },
+        "policyRule": {
+          "if": {
+            "allOf": [
+              {
+                "field": "type",
+                "equals": "Microsoft.Network/privateEndpoints"
+              },
+              {
+                "anyOf": [
+                  {
+                    "count": {
+                      "field": "Microsoft.Network/privateEndpoints/privateLinkServiceConnections[*].groupIds[*]",
+                      "where": {
+                        "field": "Microsoft.Network/privateEndpoints/privateLinkServiceConnections[*].groupIds[*]",
+                        "in": "[[parameters('groupIds')]"
+                      }
+                    },
+                    "greater": 0
+                  },
+                  {
+                    "count": {
+                      "field": "Microsoft.Network/privateEndpoints/manualPrivateLinkServiceConnections[*].groupIds[*]",
+                      "where": {
+                        "field": "Microsoft.Network/privateEndpoints/manualPrivateLinkServiceConnections[*].groupIds[*]",
+                        "in": "[[parameters('groupIds')]"
+                      }
+                    },
+                    "greater": 0
+                  }
+                ]
+              }
+            ]
+          },
+          "then": {
+            "effect": "[[parameters('effect')]",
+            "details": {
+              "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+              "roleDefinitionIds": [
+                "[variables('networkContributorRoleDefinitionId')]",
+                "[variables('privateDnsZoneContributorRoleDefinitionId')]"
+              ],
+              "existenceCondition": {
+                "count": {
+                  "field": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups/privateDnsZoneConfigs[*].privateDnsZoneId",
+                  "where": {
+                    "field": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups/privateDnsZoneConfigs[*].privateDnsZoneId",
+                    "in": "[[parameters('privateDnsZoneIds')]"
+                  }
+                },
+                "equals": "[[length(parameters('privateDnsZoneIds'))]"
+              },
+              "deployment": {
+                "properties": {
+                  "mode": "incremental",
+                  "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                      "privateEndpointName": {
+                        "type": "string"
+                      },
+                      "dnsZoneGroupName": {
+                        "type": "string"
+                      },
+                      "privateDnsZoneConfigs": {
+                        "type": "array"
+                      }
+                    },
+                    "resources": [
+                      {
+                        "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+                        "apiVersion": "2024-05-01",
+                        "name": "[[concat(parameters('privateEndpointName'), '/', parameters('dnsZoneGroupName'))]",
+                        "properties": {
+                          "privateDnsZoneConfigs": "[[map(parameters('privateDnsZoneConfigs'), lambda('config', createObject('name', lambdaVariables('config').name, 'properties', createObject('privateDnsZoneId', lambdaVariables('config').privateDnsZoneId))))]"
+                        }
+                      }
+                    ]
+                  },
+                  "parameters": {
+                    "privateEndpointName": {
+                      "value": "[[field('name')]"
+                    },
+                    "dnsZoneGroupName": {
+                      "value": "[[parameters('dnsZoneGroupName')]"
+                    },
+                    "privateDnsZoneConfigs": {
+                      "value": "[[parameters('privateDnsZoneConfigs')]"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "privateEndpointDnsAssignments": {
+      "copy": {
+        "name": "privateEndpointDnsAssignments",
+        "count": "[length(variables('dnsMappings'))]"
+      },
+      "type": "Microsoft.Authorization/policyAssignments",
+      "apiVersion": "2024-04-01",
+      "name": "[take(format('{0}-{1}', parameters('policyAssignmentNamePrefix'), variables('dnsMappings')[copyIndex()].key), 64)]",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "displayName": "[format('Auto-register {0} in Private DNS', variables('dnsMappings')[copyIndex()].displayName)]",
+        "description": "[format('Deploys a private DNS zone group on matching {0} so Azure Private Link registers A-records automatically.', variables('dnsMappings')[copyIndex()].displayName)]",
+        "policyDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/policyDefinitions', parameters('policyDefinitionName'))]",
+        "enforcementMode": "Default",
+        "parameters": {
+          "effect": {
+            "value": "DeployIfNotExists"
+          },
+          "groupIds": {
+            "value": "[variables('dnsMappings')[copyIndex()].groupIds]"
+          },
+          "privateDnsZoneIds": {
+            "value": "[map(variables('dnsMappings')[copyIndex()].privateDnsZoneConfigs, lambda('config', lambdaVariables('config').privateDnsZoneId))]"
+          },
+          "privateDnsZoneConfigs": {
+            "value": "[variables('dnsMappings')[copyIndex()].privateDnsZoneConfigs]"
+          },
+          "dnsZoneGroupName": {
+            "value": "[parameters('dnsZoneGroupName')]"
+          }
+        }
+      },
+      "dependsOn": [
+        "privateEndpointDnsPolicy"
+      ]
+    },
+    "privateEndpointDnsNetworkContributor": {
+      "copy": {
+        "name": "privateEndpointDnsNetworkContributor",
+        "count": "[length(variables('dnsMappings'))]"
+      },
+      "condition": "[parameters('createRoleAssignments')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(subscription().id, take(format('{0}-{1}', parameters('policyAssignmentNamePrefix'), variables('dnsMappings')[copyIndex()].key), 64), variables('networkContributorRoleDefinitionId'))]",
+      "properties": {
+        "roleDefinitionId": "[variables('networkContributorRoleDefinitionId')]",
+        "principalId": "[reference(format('privateEndpointDnsAssignments[{0}]', copyIndex()), '2024-04-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[format('privateEndpointDnsAssignments[{0}]', copyIndex())]",
+        "[format('privateEndpointDnsAssignments[{0}]', copyIndex())]"
+      ]
+    },
+    "privateEndpointDnsZoneContributor": {
+      "condition": "[parameters('createRoleAssignments')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "pe-dns-zone-role-assignments",
+      "subscriptionId": "[parameters('privateDnsZoneSubscriptionId')]",
+      "resourceGroup": "[parameters('privateDnsZoneResourceGroupName')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "principalIds": {
+            "copy": [
+              {
+                "name": "value",
+                "count": "[length(variables('dnsMappings'))]",
+                "input": "[reference(format('privateEndpointDnsAssignments[{0}]', copyIndex('value')), '2024-04-01', 'full').identity.principalId]"
+              }
+            ]
+          },
+          "roleAssignmentNameSeeds": {
+            "copy": [
+              {
+                "name": "value",
+                "count": "[length(variables('dnsMappings'))]",
+                "input": "[format('{0}-{1}', parameters('policyAssignmentNamePrefix'), variables('dnsMappings')[copyIndex('value')].key)]"
+              }
+            ]
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "languageVersion": "2.0",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.41.2.15936",
+              "templateHash": "5289831062954019289"
+            }
+          },
+          "parameters": {
+            "principalIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "metadata": {
+                "description": "Managed identity principal IDs that need Private DNS Zone Contributor on this resource group."
+              }
+            },
+            "roleAssignmentNameSeeds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "metadata": {
+                "description": "Deterministic seeds used for role assignment names. Must align with principalIds."
+              }
+            }
+          },
+          "variables": {
+            "privateDnsZoneContributorRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b12aa53e-6015-4669-85d0-8515ebb3ae7f')]"
+          },
+          "resources": {
+            "privateDnsZoneContributor": {
+              "copy": {
+                "name": "privateDnsZoneContributor",
+                "count": "[length(parameters('principalIds'))]"
+              },
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "name": "[guid(resourceGroup().id, parameters('roleAssignmentNameSeeds')[copyIndex()], variables('privateDnsZoneContributorRoleDefinitionId'))]",
+              "properties": {
+                "roleDefinitionId": "[variables('privateDnsZoneContributorRoleDefinitionId')]",
+                "principalId": "[parameters('principalIds')[copyIndex()]]",
+                "principalType": "ServicePrincipal"
+              }
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "privateEndpointDnsAssignments"
+      ]
+    }
+  },
+  "outputs": {
+    "policyDefinitionId": {
+      "type": "string",
+      "value": "[subscriptionResourceId('Microsoft.Authorization/policyDefinitions', parameters('policyDefinitionName'))]"
+    },
+    "assignmentNames": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "copy": {
+        "count": "[length(variables('dnsMappings'))]",
+        "input": "[take(format('{0}-{1}', parameters('policyAssignmentNamePrefix'), variables('dnsMappings')[copyIndex()].key), 64)]"
+      }
+    }
+  }
+}

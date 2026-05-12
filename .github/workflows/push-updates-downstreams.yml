@@ -1,0 +1,154 @@
+name: Push Updates Downstream
+
+on:
+  workflow_dispatch:
+    inputs:
+      appid:
+        description: Application ID matching manifests/<appid>.
+        required: true
+        type: string
+  push:
+    branches:
+      - ailz-v1
+    paths:
+      - .github/workflows/push-updates-downstreams.yml
+      - spoke-bootstrapped-content/examples/**
+      - spoke-bootstrapped-content/IaC/**
+      - spoke-bootstrapped-content/.github/workflows/**
+
+permissions:
+  contents: read
+
+jobs:
+  push-updates:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Repository
+        uses: actions/checkout@v4
+
+      - name: Resolve Downstream Repository
+        id: downstream
+        env:
+          GH_TOKEN: ${{ secrets.GH_ORG_ADMIN_TOKEN }}
+          INPUT_APPID: ${{ github.event_name == 'workflow_dispatch' && inputs.appid || '' }}
+          TEST_APPID: '1340'
+        run: |
+          appid="$(printf '%s' "${INPUT_APPID:-$TEST_APPID}" | xargs)"
+
+          if [[ -z "$appid" ]]; then
+            echo "appid is required."
+            exit 1
+          fi
+
+          if [[ ! "$appid" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "appid can only contain letters, numbers, dots, underscores, and hyphens."
+            exit 1
+          fi
+
+          manifest_file="manifests/$appid/meta-data-onboarding.json"
+          if [[ ! -f "$manifest_file" ]]; then
+            echo "Missing $manifest_file"
+            exit 1
+          fi
+
+          manifest_appid="$(jq -r '."app-id"' "$manifest_file")"
+          github_org="$(jq -r '."github-org"' "$manifest_file")"
+
+          if [[ -z "$manifest_appid" || "$manifest_appid" == "null" || -z "$github_org" || "$github_org" == "null" ]]; then
+            echo "$manifest_file must contain app-id and github-org."
+            exit 1
+          fi
+
+          if [[ "$manifest_appid" != "$appid" ]]; then
+            echo "Input appid '$appid' must match app-id '$manifest_appid' in $manifest_file."
+            exit 1
+          fi
+
+          repo_full_name="$github_org/az-ailz-$appid"
+          default_branch="$(gh repo view "$repo_full_name" --json defaultBranchRef --jq '.defaultBranchRef.name')"
+
+          if [[ -z "$default_branch" || "$default_branch" == "null" ]]; then
+            echo "Could not resolve default branch for $repo_full_name."
+            exit 1
+          fi
+
+          echo "repo_full_name=$repo_full_name" >> "$GITHUB_OUTPUT"
+          echo "default_branch=$default_branch" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Downstream Repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.downstream.outputs.repo_full_name }}
+          ref: ${{ steps.downstream.outputs.default_branch }}
+          path: downstream-repo
+          token: ${{ secrets.GH_ORG_ADMIN_TOKEN }}
+
+      - name: Sync Bootstrapped Content
+        env:
+          DOWNSTREAM_DIR: downstream-repo
+        run: |
+          source_iac="$GITHUB_WORKSPACE/spoke-bootstrapped-content/IaC"
+          source_examples="$GITHUB_WORKSPACE/spoke-bootstrapped-content/examples"
+          source_workflows="$GITHUB_WORKSPACE/spoke-bootstrapped-content/.github/workflows"
+          target_iac="$GITHUB_WORKSPACE/$DOWNSTREAM_DIR/IaC"
+          target_examples="$GITHUB_WORKSPACE/$DOWNSTREAM_DIR/examples"
+          target_workflows="$GITHUB_WORKSPACE/$DOWNSTREAM_DIR/.github/workflows"
+          target_parameters="$target_iac/main.parameters.json"
+
+          if [[ ! -d "$source_iac" ]]; then
+            echo "Missing $source_iac"
+            exit 1
+          fi
+
+          if [[ ! -d "$source_examples" ]]; then
+            echo "Missing $source_examples"
+            exit 1
+          fi
+
+          if [[ ! -d "$source_workflows" ]]; then
+            echo "Missing $source_workflows"
+            exit 1
+          fi
+
+          if [[ -f "$target_parameters" ]]; then
+            before_parameters_hash="$(sha256sum "$target_parameters" | awk '{print $1}')"
+          else
+            before_parameters_hash="__missing__"
+          fi
+
+          mkdir -p "$target_iac" "$target_examples" "$target_workflows"
+
+          rsync -a --delete --exclude='main.parameters.json' "$source_iac/" "$target_iac/"
+          rsync -a --delete "$source_examples/" "$target_examples/"
+          rsync -a "$source_workflows/" "$target_workflows/"
+
+          if [[ -f "$target_parameters" ]]; then
+            after_parameters_hash="$(sha256sum "$target_parameters" | awk '{print $1}')"
+          else
+            after_parameters_hash="__missing__"
+          fi
+
+          if [[ "$before_parameters_hash" != "$after_parameters_hash" ]]; then
+            echo "IaC/main.parameters.json changed during sync. This workflow must never overwrite it."
+            exit 1
+          fi
+
+      - name: Commit and Push Updates
+        env:
+          DOWNSTREAM_DIR: downstream-repo
+          DEFAULT_BRANCH: ${{ steps.downstream.outputs.default_branch }}
+        run: |
+          cd "$GITHUB_WORKSPACE/$DOWNSTREAM_DIR"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [[ -z "$(git status --short)" ]]; then
+            echo "No downstream updates to commit."
+            exit 0
+          fi
+
+          git add IaC examples .github/workflows
+          git commit -m "Update AI Landing Zone bootstrapped content"
+          git push origin "HEAD:$DEFAULT_BRANCH"

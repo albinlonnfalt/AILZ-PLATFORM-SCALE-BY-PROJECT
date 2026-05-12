@@ -1,0 +1,71 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "baseName": {
+      "value": "hub"
+    },
+    "location": {
+      "value": "swedencentral"
+    },
+    "tags": {
+      "value": {
+        "workload": "hub-network",
+        "role": "hub-network"
+      }
+    },
+    "hubVnetAddressPrefixes": {
+      "value": [
+        "10.0.0.0/16"
+      ]
+    },
+    "bastionSubnetPrefix": {
+      "value": "10.0.0.0/26"
+    },
+    "managementSubnetPrefix": {
+      "value": "10.0.1.0/24"
+    },
+    "deployPrivateEndpointSubnet": {
+      "value": false
+    },
+    "privateEndpointSubnetPrefix": {
+      "value": "10.0.2.0/24"
+    },
+    "adminUsername": {
+      "value": "azureadmin"
+    },
+    "adminPassword": {
+      "value": "ValidationOnly-ChangeMe123!"
+    },
+    "vmSize": {
+      "value": "Standard_D2s_v5"
+    },
+    "bastionSku": {
+      "value": "Basic"
+    },
+    "includeAssociatedResources": {
+      "value": true
+    },
+    "deployAcr": {
+      "value": true
+    },
+    "deployAppConfig": {
+      "value": true
+    },
+    "deployGenaiCosmos": {
+      "value": true
+    },
+    "deployGenaiSearch": {
+      "value": true
+    },
+    "deployGenaiStorage": {
+      "value": true
+    },
+    "deployGenaiKeyVault": {
+      "value": true
+    },
+    "deployContainerApps": {
+      "value": true
+    }
+  }
+}

@@ -1,0 +1,5 @@
+{
+    "subscription-id": "<azure-subscription-id>",
+    "app-id": "<appid>",
+    "github-org": "<github-organization>"
+}

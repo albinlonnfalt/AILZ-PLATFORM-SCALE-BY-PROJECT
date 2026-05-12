@@ -1,0 +1,103 @@
+name: IaC Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - IaC/**
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.CLIENTID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy Bicep
+        working-directory: ./IaC
+        env:
+          EXISTING_VNET_ID: ${{ vars.SPOKE_VNET_ID }}
+          PRIVATE_ENDPOINT_SUBNET_ID: ${{ vars.SPOKE_PRIVATE_ENDPOINTS_SUBNET_ID }}
+          CONTAINER_APPS_SUBNET_ID: ${{ vars.SPOKE_CONTAINER_APPS_SUBNET_ID }}
+          PRIVATE_DNS_ZONE_IDS_JSON: ${{ vars.PRIVATE_DNS_ZONE_IDS_JSON }}
+          APP_NAME: ${{ vars.NAME }}
+          FOUNDRY_PROJECT_ID: ${{ vars.FOUNDRY_PROJECT_ID }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          raw_private_dns_zone_ids = (os.environ.get("PRIVATE_DNS_ZONE_IDS_JSON") or "{}").strip()
+          if not raw_private_dns_zone_ids:
+              raw_private_dns_zone_ids = "{}"
+          if raw_private_dns_zone_ids.startswith("'") and raw_private_dns_zone_ids.endswith("'"):
+              raw_private_dns_zone_ids = raw_private_dns_zone_ids[1:-1]
+
+          try:
+              private_dns_zone_ids = json.loads(raw_private_dns_zone_ids)
+              if isinstance(private_dns_zone_ids, str):
+                  private_dns_zone_ids = json.loads(private_dns_zone_ids)
+          except json.JSONDecodeError as exc:
+              print(f"::error::PRIVATE_DNS_ZONE_IDS_JSON must contain valid JSON: {exc}", file=sys.stderr)
+              sys.exit(1)
+
+          if not isinstance(private_dns_zone_ids, dict):
+              print("::error::PRIVATE_DNS_ZONE_IDS_JSON must be a JSON object, for example {\"blob\":\"/subscriptions/...\"}.", file=sys.stderr)
+              sys.exit(1)
+
+          with open("network.parameters.json", "w", encoding="utf-8") as network_parameters_file:
+              json.dump({
+                  "parameters": {
+                      "existingVnetId": {"value": os.environ.get("EXISTING_VNET_ID", "")},
+                      "privateEndpointSubnetId": {"value": os.environ.get("PRIVATE_ENDPOINT_SUBNET_ID", "")},
+                      "containerAppsSubnetId": {"value": os.environ.get("CONTAINER_APPS_SUBNET_ID", "")},
+                        "appName": {"value": os.environ.get("APP_NAME", "")},
+                        "foundryProjectId": {"value": os.environ.get("FOUNDRY_PROJECT_ID", "")},
+                      "privateDnsZoneIds": {"value": private_dns_zone_ids}
+                  }
+              }, network_parameters_file, indent=2)
+
+          with open("main.parameters.json", encoding="utf-8") as main_parameters_file:
+              merged_parameters = json.load(main_parameters_file)
+          obsolete_foundry_parameters = [
+              "deployAiFoundry",
+              "deployBingGrounding",
+              "createCapabilityHost",
+              "capabilityHostStorageAccountName",
+              "capabilityHostCosmosDbName",
+              "capabilityHostSearchServiceName",
+              "aiFoundryAccountName",
+              "aiFoundrySku",
+              "allowProjectManagement",
+              "disableLocalAuth",
+              "projectConfiguration",
+              "aiModelDeployments",
+          ]
+          for parameter_name in obsolete_foundry_parameters:
+              merged_parameters.setdefault("parameters", {}).pop(parameter_name, None)
+          with open("network.parameters.json", encoding="utf-8") as network_parameters_file:
+              network_parameters = json.load(network_parameters_file)
+          merged_parameters["parameters"] = {
+              **merged_parameters.get("parameters", {}),
+              **network_parameters.get("parameters", {})
+          }
+          with open("merged.parameters.json", "w", encoding="utf-8") as merged_parameters_file:
+              json.dump(merged_parameters, merged_parameters_file, indent=2)
+          PY
+
+          az deployment group create -g "${{ vars.RESOURCE_GROUP_NAME }}" -f main.bicep -p @merged.parameters.json

@@ -1,0 +1,39 @@
+{
+  "ai": {
+    "aiSearch": "srch-",
+    "bingSearch": "bing-"
+  },
+  "compute": {
+    "virtualMachine": "vm-"
+  },
+  "configuration": {
+    "appConfiguration": "appcs-"
+  },
+  "containers": {
+    "containerApp": "ca-",
+    "containerAppsEnvironment": "cae-",
+    "containerRegistry": "cr"
+  },
+  "databases": {
+    "cosmosDBDatabase": "cosmos-"
+  },
+  "managementGovernance": {
+    "applicationInsights": "appi-",
+    "logAnalyticsWorkspace": "log-"
+  },
+  "networking": {
+    "natGateway": "ng-",
+    "networkSecurityGroup": "nsg-",
+    "privateEndpoint": "pep-",
+    "publicIPAddress": "pip-",
+    "virtualNetwork": "vnet-",
+    "virtualNetworkSubnet": "snet-"
+  },
+  "security": {
+    "bastion": "bas-",
+    "keyVault": "kv-"
+  },
+  "storage": {
+    "storageAccount": "st"
+  }
+}

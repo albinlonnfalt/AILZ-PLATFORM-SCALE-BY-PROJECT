@@ -1,0 +1,338 @@
+name: Onboard AI Landing Zone
+
+on:
+  workflow_dispatch:
+    inputs:
+      manifest_folder:
+        description: Manifest folder with deployment settings, for example manifests/1339.
+        required: true
+        type: string
+  push:
+    branches:
+      - main
+    paths:
+      - 'manifests/*/meta-data-onboarding.json'
+      - 'manifests/*/main-parameters.json'
+      
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: ailz-onboard-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  onboard:
+    runs-on: ubuntu-latest
+    env:
+      TF_IN_AUTOMATION: true
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve Onboarding Manifest
+        id: manifest
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            manifest_dir="${{ inputs.manifest_folder }}"
+            manifest_dir="${manifest_dir%/}"
+            manifest_file="$manifest_dir/meta-data-onboarding.json"
+
+            if [[ ! "$manifest_dir" =~ ^manifests/[^/]+$ ]]; then
+              echo "manifest_folder must use the format manifests/<appid>."
+              exit 1
+            fi
+
+            if [[ ! -f "$manifest_file" ]]; then
+              echo "Missing $manifest_file"
+              exit 1
+            fi
+          else
+            before="${{ github.event.before }}"
+            after="${{ github.sha }}"
+
+            if [[ "$before" =~ ^0+$ ]]; then
+              changed_files="$(git diff-tree --no-commit-id --name-only --diff-filter=AM -r "$after" -- 'manifests/*/meta-data-onboarding.json' 'manifests/*/main-parameters.json')"
+            else
+              changed_files="$(git diff --name-only --diff-filter=AM "$before" "$after" -- 'manifests/*/meta-data-onboarding.json' 'manifests/*/main-parameters.json')"
+            fi
+
+            mapfile -t manifest_dirs < <(printf '%s\n' "$changed_files" | sed '/^$/d' | xargs -r -n1 dirname | sort -u)
+            if (( ${#manifest_dirs[@]} > 1 )); then
+              echo "Only one onboarding manifest folder can be processed per workflow run. Changed manifest folders:"
+              printf '%s\n' "${manifest_dirs[@]}"
+              exit 1
+            fi
+
+            manifest_dir="${manifest_dirs[0]:-}"
+            if [[ -z "$manifest_dir" ]]; then
+              echo "No onboarding manifest or parameter file was added or modified."
+              exit 1
+            fi
+
+            manifest_file="$manifest_dir/meta-data-onboarding.json"
+          fi
+
+          main_parameters_file="$manifest_dir/main-parameters.json"
+
+          if [[ ! -f "$manifest_file" ]]; then
+            echo "Missing $manifest_file"
+            exit 1
+          fi
+
+          if [[ ! -f "$main_parameters_file" ]]; then
+            echo "Missing $main_parameters_file"
+            exit 1
+          fi
+
+          subscription_id="$(jq -r '."subscription-id"' "$manifest_file")"
+          appid="$(jq -r '."app-id"' "$manifest_file")"
+          github_org="$(jq -r '."github-org"' "$manifest_file")"
+          folder_appid="$(basename "$manifest_dir")"
+
+          if [[ -z "$subscription_id" || "$subscription_id" == "null" || -z "$appid" || "$appid" == "null" || -z "$github_org" || "$github_org" == "null" ]]; then
+            echo "$manifest_file must contain subscription-id, app-id, and github-org."
+            exit 1
+          fi
+
+          if [[ "$subscription_id" == YOUR_* || "$appid" == YOUR_* || "$github_org" == YOUR_* ]]; then
+            echo "$manifest_file contains placeholder values. Replace them before onboarding."
+            exit 1
+          fi
+
+          if [[ "$appid" != "$folder_appid" ]]; then
+            echo "app-id '$appid' must match manifest folder '$folder_appid'."
+            exit 1
+          fi
+
+          jq -e '.parameters | type == "object"' "$main_parameters_file" >/dev/null
+
+          echo "manifest_dir=$manifest_dir" >> "$GITHUB_OUTPUT"
+          echo "subscription_id=$subscription_id" >> "$GITHUB_OUTPUT"
+          echo "appid=$appid" >> "$GITHUB_OUTPUT"
+          echo "github_org=$github_org" >> "$GITHUB_OUTPUT"
+          echo "repo_full_name=$github_org/az-ailz-$appid" >> "$GITHUB_OUTPUT"
+          echo "main_parameters_file=$main_parameters_file" >> "$GITHUB_OUTPUT"
+
+      - name: Check Existing Repository
+        id: repository_state
+        env:
+          GH_TOKEN: ${{ secrets.GH_ORG_ADMIN_TOKEN }}
+          REPO_FULL_NAME: ${{ steps.manifest.outputs.repo_full_name }}
+        run: |
+          if gh repo view "$REPO_FULL_NAME" >/dev/null 2>&1; then
+            echo "$REPO_FULL_NAME already exists. Skipping onboarding."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$REPO_FULL_NAME does not exist. Continuing onboarding."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Azure Login
+        if: steps.repository_state.outputs.skip == 'false'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ steps.manifest.outputs.subscription_id }}
+
+      - name: Compile Spoke Network Bicep
+        if: steps.repository_state.outputs.skip == 'false'
+        run: |
+          az bicep build \
+            --file networking-example-remove/modules/spoke/main.bicep \
+            --outfile networking-example-remove/templates/spoke-network.json
+
+      - name: Setup Terraform
+        if: steps.repository_state.outputs.skip == 'false'
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        if: steps.repository_state.outputs.skip == 'false'
+        working-directory: onboarding
+        run: terraform init
+
+      - name: Generate Terraform Variables
+        if: steps.repository_state.outputs.skip == 'false'
+        env:
+          APPID: ${{ steps.manifest.outputs.appid }}
+          GITHUB_ORG: ${{ steps.manifest.outputs.github_org }}
+          MAIN_PARAMETERS_FILE: ${{ steps.manifest.outputs.main_parameters_file }}
+          SUBSCRIPTION_ID: ${{ steps.manifest.outputs.subscription_id }}
+        run: |
+          hub_network_file="manifests/_shared/hub-network.json"
+          platform_foundry_file="manifests/_shared/platform-foundry.json"
+
+          if [[ ! -f "$hub_network_file" ]]; then
+            echo "Missing $hub_network_file. Add hub outputs before onboarding a spoke network."
+            exit 1
+          fi
+
+          if [[ ! -f "$platform_foundry_file" ]]; then
+            echo "Missing $platform_foundry_file. Deploy platform-foundation and publish central Foundry outputs before onboarding a spoke."
+            exit 1
+          fi
+
+          jq -e '
+            (.foundrySubscriptionId // "") != "" and
+            (.foundryResourceGroupName // "") != "" and
+            (.foundryAccountName // "") != "" and
+            (.foundryAccountId // "") != "" and
+            (.capabilityHost.storageAccountName // "") != "" and
+            (.capabilityHost.storageAccountId // "") != "" and
+            (.capabilityHost.cosmosDbName // "") != "" and
+            (.capabilityHost.cosmosDbId // "") != "" and
+            (.capabilityHost.aiSearchName // "") != "" and
+            (.capabilityHost.aiSearchId // "") != ""
+          ' "$platform_foundry_file" >/dev/null || {
+            echo "$platform_foundry_file must contain central Foundry account and shared capability-host outputs."
+            exit 1
+          }
+
+          jq -s \
+            --arg appid "$APPID" \
+            --arg github_org "$GITHUB_ORG" \
+            --arg subscription_id "$SUBSCRIPTION_ID" \
+            '
+            def param($name; $default):
+              if (.[0].parameters[$name]? | type) == "object" and (.[0].parameters[$name] | has("value")) then
+                .[0].parameters[$name].value
+              else
+                $default
+              end;
+
+            .[1] as $hub |
+            .[2] as $platform |
+            {
+              ONBOARD_SUB_ID: $subscription_id,
+              APPID: $appid,
+              GITHUB_ORG: $github_org,
+              DEPLOY_SPOKE_NETWORK: true,
+              LOCATION: param("location"; "swedencentral"),
+              SPOKE_NETWORK_TEMPLATE_FILE: "../networking-example-remove/templates/spoke-network.json",
+              SPOKE_BASE_NAME: param("spokeBaseName"; "az-ailz-" + $appid),
+              DEPLOY_AI_FOUNDRY_AGENT_SUBNET: param("deployAiFoundryAgentSubnet"; true),
+              DEPLOY_CONTAINER_APPS_SUBNET: param("deployContainerAppsSubnet"; param("deployContainerApps"; false)),
+              SPOKE_TAGS: param("tags"; {}),
+              HUB_SUBSCRIPTION_ID: ($hub.hubSubscriptionId // $subscription_id),
+              HUB_RESOURCE_GROUP_NAME: ($hub.hubResourceGroupName // ""),
+              HUB_PRIVATE_DNS_RESOURCE_GROUP_NAME: ($hub.hubPrivateDnsResourceGroupName // $hub.hubResourceGroupName),
+              HUB_VNET_NAME: ($hub.hubVnetName // ""),
+              HUB_VNET_ID: ($hub.hubVnetId // ""),
+              HUB_PRIVATE_DNS_ZONE_IDS: ($hub.privateDnsZoneIds // {}),
+              SPOKE_ALLOW_FORWARDED_TRAFFIC: param("allowForwardedTraffic"; false),
+              SPOKE_USE_REMOTE_GATEWAYS: param("useRemoteGateways"; false),
+              HUB_ALLOW_GATEWAY_TRANSIT: param("allowGatewayTransit"; false),
+              SPOKE_PRIVATE_DNS_REGISTRATION_ENABLED: param("privateDnsRegistrationEnabled"; false),
+              CENTRAL_FOUNDRY_SUBSCRIPTION_ID: ($platform.foundrySubscriptionId // $subscription_id),
+              CENTRAL_FOUNDRY_RESOURCE_GROUP_NAME: ($platform.foundryResourceGroupName // ""),
+              CENTRAL_FOUNDRY_ACCOUNT_NAME: ($platform.foundryAccountName // ""),
+              CENTRAL_FOUNDRY_ACCOUNT_ID: ($platform.foundryAccountId // ""),
+              CENTRAL_FOUNDRY_ACCOUNT_ENDPOINT: ($platform.foundryAccountEndpoint // ""),
+              CENTRAL_FOUNDRY_PROJECT_NAME_PREFIX: ($platform.projectNamePrefix // "ailz"),
+              CENTRAL_FOUNDRY_CREATE_PROJECT_CAPABILITY_HOST: ($platform.createProjectCapabilityHost // true),
+              CENTRAL_FOUNDRY_CAPABILITY_HOST_STORAGE_ACCOUNT_NAME: ($platform.capabilityHost.storageAccountName // ""),
+              CENTRAL_FOUNDRY_CAPABILITY_HOST_STORAGE_ACCOUNT_ID: ($platform.capabilityHost.storageAccountId // ""),
+              CENTRAL_FOUNDRY_CAPABILITY_HOST_COSMOS_DB_NAME: ($platform.capabilityHost.cosmosDbName // ""),
+              CENTRAL_FOUNDRY_CAPABILITY_HOST_COSMOS_DB_ID: ($platform.capabilityHost.cosmosDbId // ""),
+              CENTRAL_FOUNDRY_CAPABILITY_HOST_SEARCH_SERVICE_NAME: ($platform.capabilityHost.aiSearchName // ""),
+              CENTRAL_FOUNDRY_CAPABILITY_HOST_SEARCH_SERVICE_ID: ($platform.capabilityHost.aiSearchId // ""),
+              CENTRAL_FOUNDRY_CAPABILITY_HOST_KEY_VAULT_NAME: ($platform.capabilityHost.keyVaultName // ""),
+              CENTRAL_FOUNDRY_CAPABILITY_HOST_KEY_VAULT_ID: ($platform.capabilityHost.keyVaultId // "")
+            }
+            ' \
+            "$MAIN_PARAMETERS_FILE" \
+            "$hub_network_file" \
+            "$platform_foundry_file" > onboarding/onboard.auto.tfvars.json
+
+          jq . onboarding/onboard.auto.tfvars.json
+
+      - name: Terraform Apply
+        if: steps.repository_state.outputs.skip == 'false'
+        working-directory: onboarding
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_ORG_ADMIN_TOKEN }}
+          TF_VAR_ONBOARD_SUB_ID: ${{ steps.manifest.outputs.subscription_id }}
+          TF_VAR_APPID: ${{ steps.manifest.outputs.appid }}
+          TF_VAR_GITHUB_ORG: ${{ steps.manifest.outputs.github_org }}
+          ARM_SUBSCRIPTION_ID: ${{ steps.manifest.outputs.subscription_id }}
+        run: terraform apply -auto-approve -input=false
+
+      - name: Capture Terraform Outputs
+        if: steps.repository_state.outputs.skip == 'false'
+        id: terraform_outputs
+        working-directory: onboarding
+        run: |
+          echo "repo_full_name=$(terraform output -raw repo_full_name)" >> "$GITHUB_OUTPUT"
+          echo "repo_default_branch=$(terraform output -raw repo_default_branch)" >> "$GITHUB_OUTPUT"
+
+      - name: Seed Repository Variables
+        if: steps.repository_state.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GH_ORG_ADMIN_TOKEN }}
+          REPO_FULL_NAME: ${{ steps.terraform_outputs.outputs.repo_full_name }}
+          RESOURCE_GROUP_NAME: rg-az-ailz-${{ steps.manifest.outputs.appid }}
+        run: |
+          gh variable set AZURE_TENANT_ID --body "${{ secrets.AZURE_TENANT_ID }}" -R "$REPO_FULL_NAME"
+          gh variable set RESOURCE_GROUP_NAME --body "$RESOURCE_GROUP_NAME" -R "$REPO_FULL_NAME"
+
+      - name: Checkout Provisioned Repository
+        if: steps.repository_state.outputs.skip == 'false'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.terraform_outputs.outputs.repo_full_name }}
+          ref: ${{ steps.terraform_outputs.outputs.repo_default_branch }}
+          path: seed-repo
+          token: ${{ secrets.GH_ORG_ADMIN_TOKEN }}
+
+      - name: Seed Bootstrapped Content
+        if: steps.repository_state.outputs.skip == 'false'
+        env:
+          REPO_DEFAULT_BRANCH: ${{ steps.terraform_outputs.outputs.repo_default_branch }}
+          MANIFEST_DIR: ${{ steps.manifest.outputs.manifest_dir }}
+          MAIN_PARAMETERS_FILE: ${{ steps.manifest.outputs.main_parameters_file }}
+        run: |
+          seed_dir="$GITHUB_WORKSPACE/seed-repo"
+
+          mkdir -p "$seed_dir/.github/workflows"
+          rm -rf "$seed_dir/IaC"
+          rm -rf "$seed_dir/examples"
+
+          cp "$GITHUB_WORKSPACE/spoke-bootstrapped-content/.github/workflows/iac-deploy.yaml" "$seed_dir/.github/workflows/iac-deploy.yaml"
+          cp -R "$GITHUB_WORKSPACE/spoke-bootstrapped-content/IaC" "$seed_dir/IaC"
+          cp -R "$GITHUB_WORKSPACE/spoke-bootstrapped-content/examples" "$seed_dir/examples"
+          cp -f "$GITHUB_WORKSPACE/$MAIN_PARAMETERS_FILE" "$seed_dir/IaC/main.parameters.json"
+          jq 'del(
+            .parameters.deployAiFoundry,
+            .parameters.deployBingGrounding,
+            .parameters.createCapabilityHost,
+            .parameters.capabilityHostStorageAccountName,
+            .parameters.capabilityHostCosmosDbName,
+            .parameters.capabilityHostSearchServiceName,
+            .parameters.aiFoundryAccountName,
+            .parameters.aiFoundrySku,
+            .parameters.allowProjectManagement,
+            .parameters.disableLocalAuth,
+            .parameters.projectConfiguration,
+            .parameters.aiModelDeployments
+          )' "$seed_dir/IaC/main.parameters.json" > "$seed_dir/IaC/main.parameters.json.tmp"
+          mv "$seed_dir/IaC/main.parameters.json.tmp" "$seed_dir/IaC/main.parameters.json"
+
+          git -C "$seed_dir" config user.name "github-actions[bot]"
+          git -C "$seed_dir" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [[ -z "$(git -C "$seed_dir" status --short)" ]]; then
+            echo "No repository changes to commit."
+            exit 0
+          fi
+
+          git -C "$seed_dir" add .
+          git -C "$seed_dir" commit -m "Seed AI Landing Zone workload"
+          git -C "$seed_dir" push origin "HEAD:${REPO_DEFAULT_BRANCH}"
